@@ -46,6 +46,133 @@ def analyze_sales_performance(data):
     return sales_by_product
 
 
+def analyze_active_vs_inactive_products(data):
+    orders = data['orders'].copy()
+    order_details = data['order_details'].copy()
+    products = data['products'].copy()
+    categories = data['categories'].copy()
+
+    order_details['total_sale'] = order_details['unit_price'] * order_details['quantity'] * (
+                1 - order_details['discount'])
+
+    sales_data = (order_details
+                  .merge(products, on='product_id')
+                  .merge(categories, on='category_id')
+                  .merge(orders, on='order_id'))
+
+    sales_data['order_date'] = pd.to_datetime(sales_data['order_date'])
+    sales_data['year_month'] = sales_data['order_date'].dt.to_period('M')
+
+    for status in [0, 1]:
+        status_name = "ATIVOS" if status == 0 else "INATIVOS"
+        df_status = sales_data.loc[sales_data['discontinued'] == status].copy()
+
+        print("\n" + "=" * 50)
+        print(f" ANÁLISE DE PRODUTOS {status_name}")
+        print("=" * 50)
+
+        print("\n1. Métricas Gerais:")
+        print(f"Total de produtos: {len(df_status['product_id'].unique())}")
+        print(f"Total de vendas: R$ {df_status['total_sale'].sum():,.2f}")
+        print(f"Ticket médio: R$ {df_status['total_sale'].mean():,.2f}")
+        print(f"Quantidade total vendida: {df_status['quantity'].sum():,}")
+
+        print("\n2. Top 5 Produtos por Receita:")
+        top_products = (df_status.groupby('product_name')
+                        .agg({
+            'total_sale': 'sum',
+            'quantity': 'sum'
+        })
+                        .sort_values('total_sale', ascending=False)
+                        .head())
+        print(top_products)
+
+        print("\n3. Vendas por Categoria:")
+        category_analysis = (df_status.groupby('category_name')
+                             .agg({
+            'total_sale': 'sum',
+            'quantity': 'sum',
+            'product_id': 'nunique'
+        })
+                             .round(2)
+                             .sort_values('total_sale', ascending=False))
+        print(category_analysis)
+
+        print("\n4. Tendência de Vendas por Ano-Mês:")
+        temporal_analysis = (df_status.groupby('year_month')
+                             .agg({
+            'total_sale': 'sum',
+            'order_id': 'nunique'
+        })
+                             .tail())
+        print(temporal_analysis)
+
+        print("\n5. Impacto dos Descontos:")
+        discount_analysis = (df_status.groupby('discount')
+                             .agg({
+            'total_sale': 'sum',
+            'quantity': 'sum'
+        })
+                             .sort_values('total_sale', ascending=False))
+        print(discount_analysis)
+
+    print("\n" + "=" * 50)
+    print(" COMPARATIVO FINAL ATIVOS VS INATIVOS")
+    print("=" * 50)
+
+    comparative = pd.DataFrame({
+        'Métrica': ['Total Produtos', 'Total Vendas', 'Ticket Médio', 'Qtd Total'],
+        'Ativos': [
+            len(sales_data[sales_data['discontinued'] == 0]['product_id'].unique()),
+            sales_data[sales_data['discontinued'] == 0]['total_sale'].sum(),
+            sales_data[sales_data['discontinued'] == 0]['total_sale'].mean(),
+            sales_data[sales_data['discontinued'] == 0]['quantity'].sum()
+        ],
+        'Inativos': [
+            len(sales_data[sales_data['discontinued'] == 1]['product_id'].unique()),
+            sales_data[sales_data['discontinued'] == 1]['total_sale'].sum(),
+            sales_data[sales_data['discontinued'] == 1]['total_sale'].mean(),
+            sales_data[sales_data['discontinued'] == 1]['quantity'].sum()
+        ]
+    })
+
+    comparative['Ativos'] = comparative.apply(
+        lambda x: f"{x['Ativos']:,.2f}" if isinstance(x['Ativos'], (float, int)) else x['Ativos'], axis=1)
+    comparative['Inativos'] = comparative.apply(
+        lambda x: f"{x['Inativos']:,.2f}" if isinstance(x['Inativos'], (float, int)) else x['Inativos'], axis=1)
+
+    print("\nComparativo Final:")
+    print(comparative.to_string(index=False))
+
+def analyze_product_status(data):
+    order_details = data['order_details'].copy()
+    products = data['products'].copy()
+
+    order_details['total_sale'] = order_details['unit_price'] * order_details['quantity'] * (
+                1 - order_details['discount'])
+
+    sales_by_status = (order_details
+    .merge(products, on='product_id')
+    .groupby('discontinued')
+    .agg({
+        'total_sale': 'sum',
+        'quantity': 'sum'
+    }))
+
+    print("\n" + "=" * 50)
+    print(" " * 15 + "ANÁLISE POR STATUS DO PRODUTO")
+    print("=" * 50 + "\n")
+    print("Vendas por Status do Produto:")
+    print("\nProdutos Ativos (0):")
+    if 0 in sales_by_status.index:
+        print(f"Total vendas: R$ {sales_by_status.loc[0, 'total_sale']:,.2f}")
+        print(f"Quantidade vendida: {sales_by_status.loc[0, 'quantity']:,}")
+
+    print("\nProdutos Inativos (1):")
+    if 1 in sales_by_status.index:
+        print(f"Total vendas: R$ {sales_by_status.loc[1, 'total_sale']:,.2f}")
+        print(f"Quantidade vendida: {sales_by_status.loc[1, 'quantity']:,}")
+
 def analyze_seasonality(data):
     orders = data['orders'].copy()
     order_details = data['order_details'].copy()
@@ -353,6 +480,7 @@ def main():
     data = load_all_data()
     #check_data_quality(data)
     analyze_sales_performance(data)
+    analyze_active_vs_inactive_products(data)
     analyze_seasonality(data)
     analyze_geographic_distribution(data)
     analyze_cross_selling(data)
